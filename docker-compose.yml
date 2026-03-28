@@ -1,0 +1,81 @@
+version: '3.9'
+
+services:
+  # ── Backend API ─────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: voicememory-backend
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      CHROMA_URL: http://chromadb:8000
+      REDIS_URL: redis://redis:6379
+      UPLOADS_DIR: /app/uploads
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      - chromadb
+      - redis
+    networks:
+      - voicememory-net
+
+  # ── ChromaDB Vector Store ────────────────────────────────────────────
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: voicememory-chroma
+    restart: unless-stopped
+    ports:
+      - '8000:8000'
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      CHROMA_SERVER_AUTH_PROVIDER: ''
+      ALLOW_RESET: 'true'
+    networks:
+      - voicememory-net
+
+  # ── Redis (job queue + session cache) ────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: voicememory-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - voicememory-net
+
+  # ── Nginx reverse proxy (production) ─────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: voicememory-nginx
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - uploads_data:/var/www/uploads:ro
+    depends_on:
+      - backend
+    networks:
+      - voicememory-net
+    profiles:
+      - production
+
+volumes:
+  uploads_data:
+  chroma_data:
+  redis_data:
+
+networks:
+  voicememory-net:
+    driver: bridge
